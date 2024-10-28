@@ -33,7 +33,6 @@ class Node:
             return
 
         if self.state == NodeState.Idle and (packet := self.protocol.send_packet()):
-            print(f'{self.id} has started sending')
             self.state = NodeState.Sending
             self.state_counter = packet.length
 
@@ -49,8 +48,6 @@ class Node:
         # check for collisions
         if self.has_collided(simulation_time, active_transmissions):
             return None
-
-        # print(f'{self.id} is receiving')
 
         self.state_counter -= 1
         if self.state_counter == 0:
@@ -86,13 +83,12 @@ class Node:
             case []:
                 return False
             case [packet] if packet.actual_transmit_time + self.get_packet_travel_time(packet.source) == simulation_time:
-                print(f'{self.id} packet arrival detected')
                 self.state = NodeState.Receiving
                 self.currently_receiving = packet
                 self.state_counter = packet.message.length
                 return False
             case [_, _, *_]:
-                print("collision detected")
+                print(f'has_collided (id: {self.id}): Collision')
                 self.state = NodeState.Idle
                 self.state_counter = 0
                 self.currently_receiving = None
