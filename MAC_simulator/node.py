@@ -3,7 +3,7 @@ from enum import Enum
 
 import numpy as np
 
-from protocols import Message, MACProtocol
+from protocols import HighLevelMessage, MACProtocol
 
 
 class NodeState(Enum):
@@ -121,7 +121,7 @@ class Transmission:
     source: Node
     planned_transmit_time: int
     actual_transmit_time: int
-    message: Message
+    message: HighLevelMessage
 
 
 def get_distance_between_nodes(n1: Node, n2: Node) -> float:

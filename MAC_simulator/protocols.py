@@ -61,7 +61,7 @@ class RTC_CTS_ALOHA:
     def __init__(self, identifier: int):
         self.id = identifier
         self.backoff = randint(1, 16)
-        self.ack_await_counter = 0 # rename this. ack_await_counter is e.g. also used to wait for a CTS
+        self.wait_counter = 0
         self.buffer: list[Message] = []
         self.message_buffer: dict[int: Message] = {}
         self.sequence_number = 0
@@ -86,6 +86,17 @@ class RTC_CTS_ALOHA:
         # ignoring by this, note that back-off is already paused due to node state machine
         if message.target != self.id:
             print(f'node {self.id}: receive_packet: Discarded {message}')
+
+            if 'rts' in message.content:
+                print(f'\tnode {self.id}: receive_packet: Ignore RTS')
+                self.wait_counter = 15 # TODO: change hardcoded value to something useful
+                return
+            
+            if 'cts' in message.content:
+                print(f'\tnode {self.id}: receive_packet: Ignore CTS')
+                self.wait_counter = 50 # TODO: change hardcoded value to something useful
+                return
+
             return
         # technically a message needs a sequence number,
         # in theory a stray ack might now delete a random message in the buffer
@@ -93,29 +104,24 @@ class RTC_CTS_ALOHA:
         print(f'node {self.id}: receive_packet: Received {message}')
 
         # whilst awaiting a reply we ignore all incoming rts requests.
-        if 'rts' in message.content and not self.ack_await_counter and not self.rts_lock:
+        if 'rts' in message.content and not self.wait_counter and not self.rts_lock:
             print(f'\tnode {self.id}: receive_packet: Received RTS. Add CTS to buffer')
             self.backoff = 0
             self.buffer.insert(0, Message(message.source, message.target, message.sequence_number, f'cts {message.length}', 1))
             self.rts_lock = True
             return
 
-        if 'rts' in message.content:
-            print(f'\tnode {self.id}: receive_packet: Ignore RTS')
-            return
-
-        # TODO match that this is corresponding to the currently outgoing rts in the buffer
         if 'cts' in message.content:
             print(f'\tnode {self.id}: receive_packet: Received CTS. Add data to buffer')
             # while technically not an ack it is an ack towards the last sent rts message.
-            self.ack_await_counter = 0
+            self.wait_counter = 0
             self.backoff = 0
             self.buffer.insert(0, self.message_buffer[message.sequence_number])
             return
 
         if self.buffer and message.source == self.buffer[0].target and message.content == 'ack' and message.sequence_number == self.buffer[0].sequence_number:
             print(f'\tnode {self.id}: receive_packet: Received ACK. Delete RTS from buffer')
-            self.ack_await_counter = 0
+            self.wait_counter = 0
             del self.buffer[0]  # deletes the RTS message from the buffer.
             return
 
@@ -124,7 +130,7 @@ class RTC_CTS_ALOHA:
             # this now just assumes that we got a data packet and we reply with an ack.
             print(f'\tnode {self.id}: receive_packet: Received data. Add ACK to buffer')
             self.buffer.insert(0, message.get_ack())
-            self.ack_await_counter = 0
+            self.wait_counter = 0
             self.backoff = 0
             return
 
@@ -132,8 +138,8 @@ class RTC_CTS_ALOHA:
 
     def send_packet(self) -> Message:
         # if awaiting an ack we should pause the whole system
-        if self.ack_await_counter:
-            self.ack_await_counter -= 1
+        if self.wait_counter:
+            self.wait_counter -= 1
             return
         
         # Check if we want to send something
@@ -143,7 +149,7 @@ class RTC_CTS_ALOHA:
         self.backoff = max(0, self.backoff-1)
         if self.backoff == 0:
             self.backoff = randint(1, 16)
-            self.ack_await_counter = 50 
+            self.wait_counter = 50 
 
             # no packet should be stored in the buffer apart from rts packets which will trigger new packets in the buffer.
             # so we delete this from the buffer upon transmission
@@ -154,9 +160,9 @@ class RTC_CTS_ALOHA:
                 self.rts_lock = False
 
             if 'ack' in transmission.content:
-                self.ack_await_counter = 0  # after an ack we do not await anything anymore.
+                self.wait_counter = 0  # after an ack we do not await anything anymore.
 
-            print("node {self.id}: send_packet: {}".format(self.id, transmission))
+            print("node {}: send_packet: {}".format(self.id, transmission))
 
             return transmission
 
@@ -164,7 +170,7 @@ class ALOHA:
     def __init__(self, identifier: int):
         self.id = identifier
         self.backoff = randint(1, 16)
-        self.ack_await_counter = 0
+        self.wait_counter = 0
         self.buffer: list[Message] = []
         self.sequence_number = 0
 
@@ -183,7 +189,7 @@ class ALOHA:
         # in theory a stray ack might now delete a random message in the buffer
         if self.buffer and message.source == self.buffer[0].target and message.content == 'ack' and message.sequence_number == self.buffer[0].sequence_number:
             print(f'{self.id} received ack')
-            self.ack_await_counter = 0
+            self.wait_counter = 0
             del self.buffer[0]
             return
 
@@ -194,8 +200,8 @@ class ALOHA:
 
     def send_packet(self) -> Message:
         # if awaiting an ack we should pause the whole system
-        if self.ack_await_counter:
-            self.ack_await_counter -= 1
+        if self.wait_counter:
+            self.wait_counter -= 1
             return
         if not self.buffer:
             return
@@ -203,5 +209,5 @@ class ALOHA:
         self.backoff = max(0, self.backoff-1)
         if self.backoff == 0:
             self.backoff = randint(1, 16)
-            self.ack_await_counter = 50
+            self.wait_counter = 50
             return self.buffer[0]
