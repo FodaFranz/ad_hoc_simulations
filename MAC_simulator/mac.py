@@ -1,3 +1,7 @@
+import json
+from os import cpu_count
+from textwrap import indent
+
 import matplotlib.pyplot as plt
 import logging
 
@@ -7,9 +11,10 @@ import random
 from aloha_node import ALOHANode
 from rts_cts_node import RTSCTSNode
 from transmission import HighLevelMessage
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # from scenarious import data_sink_rts_cts_25_random_max_100 as scen
-from scenarious_routing import Routing_1_aloha as scen
+from scenarious_routing import create_scenario
 
 """
 for i in range(0, N):
@@ -24,6 +29,7 @@ for i in range(0, N):
 
 nodes[0].send_schedule.append(n.Transmission(0, nodes[0], 7, 0, n.Message("HALLO", 7)))
 """
+
 
 class Visualizer:
     def __init__(self, x: int, y: int):
@@ -87,6 +93,53 @@ def run_scenario(scenario) -> tuple[int, int, int]:
         simulation_time += 1
 
 
+def optimalWorkers() -> int:
+    cores = cpu_count()
+    if cores is None:
+        logging.warning(
+            "Could not establish amount of cores for multiprocessing (default = 1), please pass a desired number of cores to use.")
+        return 2
+    return cores - 2  # always save a couple cores for windows, it likes that
+
+
+
+def multiprocess():
+    loops = 25
+    workers = optimalWorkers()
+    pool = ProcessPoolExecutor(workers)
+    futures = []
+    results = []
+
+    configs = [
+        (RTSCTSNode, 10, False, 3, 'rts_cts_route_10'),
+        (RTSCTSNode, 20, False, 3, 'rts_cts_route_20'),
+        (RTSCTSNode, 30, False, 3, 'rts_cts_route_30'),
+        (RTSCTSNode, 40, False, 3, 'rts_cts_route_40'),
+        (ALOHANode, 10, False, 3, 'aloha_route_10'),
+        (ALOHANode, 20, False, 3, 'aloha_route_20'),
+        (ALOHANode, 30, False, 3, 'aloha_route_30'),
+        (ALOHANode, 40, False, 3, 'aloha_route_40'),
+        (RTSCTSNode, 10, True, 3, 'moving_rts_cts_route_10'),
+        (RTSCTSNode, 20, True, 3, 'moving_rts_cts_route_20'),
+        (RTSCTSNode, 30, True, 3, 'moving_rts_cts_route_30'),
+        (RTSCTSNode, 40, True, 3, 'moving_rts_cts_route_40'),
+        (ALOHANode, 10, True, 3, 'moving_aloha_route_10'),
+        (ALOHANode, 20, True, 3, 'moving_aloha_route_20'),
+        (ALOHANode, 30, True, 3, 'moving_aloha_route_30'),
+        (ALOHANode, 40, True, 3, 'moving_aloha_route_40')
+    ]
+
+    for config in configs:
+        for _ in range(loops):  # magic but it works
+            futures.append(pool.submit(run_scenario, (create_scenario(*config))))
+    print('Adding all tasks')
+
+    i = 0
+    for x in as_completed(futures):  # wait for each proces to complete
+        i += 1
+        print(f'Completed {i}/{len(futures)}')
+        results.append(x.result())  # assign the return from the function.
+    return results
 
 
 def main():
@@ -94,14 +147,11 @@ def main():
     X = 10  # Window size
     Y = 10  # Window size
 
-    np.random.seed(42)
-    random.seed(42)
 
-    logging.basicConfig(format='%(message)s', level=logging.INFO)
 
     simulation_time = 0
     active_transmissions = []
-
+    scen = create_scenario(RTSCTSNode, 40, True)
     scen.setup()
 
     vis = Visualizer(X, Y)
@@ -116,5 +166,14 @@ def main():
         vis.draw_function(scen.nodes, simulation_time)
         simulation_time += 1
 
+
 if __name__ == '__main__':
+    np.random.seed(42)
+    random.seed(42)
+
+    logging.basicConfig(format='%(message)s', level=logging.ERROR)
     main()
+    # res = multiprocess()
+    # print(res)
+    # with open("data2.json", "w") as outfile:
+    #     json.dump(res, outfile, indent=4)

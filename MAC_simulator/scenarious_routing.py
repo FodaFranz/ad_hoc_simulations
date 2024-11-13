@@ -10,6 +10,8 @@ from transmission import HighLevelMessage, Message, MessageType
 from rts_cts_node import RTSCTSNode
 from aloha_node import ALOHANode
 
+np.random.seed(42)
+
 
 @dataclass
 class PlannedTransmission:
@@ -25,6 +27,7 @@ class Scenario:
     transceive_range: float
     nodes: list[Node]
     send_schedule: list[PlannedTransmission]
+    movement: bool
 
     def get_collision_count(self):
         cnt = 0
@@ -34,10 +37,13 @@ class Scenario:
         return cnt
 
 
-    def report(self, simulation_time: int):
-        with open(f"./data/{self.name}.csv", mode='a+', newline='') as file:
+    def return_result(self):
+        return (self.established_time, self.resulting_time, self.hops, self.name)
+
+    def report(self):
+        with open(f"./routing.csv", mode='a+', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([simulation_time, self.get_collision_count()])
+            writer.writerow(self.return_result())
 
 
     def setup(self):
@@ -46,7 +52,7 @@ class Scenario:
         self.resulting_time = -1
         for node in self.nodes:
             node.routing_protocol = DSDVRoutingProtocol(node.id)
-
+            node.add_neighbors(self.nodes)
 
     def get_node_by_id(self, id: int) -> Node | None:
         for node in self.nodes:
@@ -66,17 +72,19 @@ class Scenario:
         self.send_messages(simulation_time)
 
         if simulation_time >= 10_000:
-            return (self.established_time, self.resulting_time, self.hops)
+            self.report()
+            return self.return_result()
 
         source_node = self.nodes[-2]
         target_node = self.nodes[-1]
 
-        if target_node.id in source_node.routing_protocol.table:
+        if target_node.id in source_node.routing_protocol.table and self.established_time == -1:
             self.established_time = simulation_time
 
-        for node in self.nodes:
-            # node.move()
-            node.add_neighbors(self.nodes)
+        if self.movement:
+            for node in self.nodes:
+                node.move()
+                node.add_neighbors(self.nodes)
 
         for node in self.nodes:
             node.execute_state_machine(simulation_time, active_transmissions)
@@ -89,7 +97,8 @@ class Scenario:
                     self.hops += 1
                     if msg.route_target == msg.target:
                         self.resulting_time = simulation_time
-                        return (self.established_time, self.resulting_time, self.hops)
+                        self.report()
+                        return self.return_result()
 
                 if 'cts' in msg.content:
                     logging.info("Node {} received: {}".format(node.id, msg))
@@ -101,41 +110,22 @@ class Scenario:
                 node.send(reply)
 
 
-        # if simulation_time == 250:
-        #     logging.info('Removing node 3 as sender from the network')
-        #     self.nodes[3]._shadow = self.nodes[3].send
-        #     self.nodes[3].send = lambda _: None
-        #
-        # if simulation_time == 550:
-        #     logging.info(f'{self.nodes[0].routing_protocol.table}')
-        #     self.nodes[3].send = self.nodes[3]._shadow
-        #     logging.info('Adding node 3 as sender to the network')
-        #
-        # if simulation_time == 750:
-        #     logging.info(f'{self.nodes[0].routing_protocol.table}')
+def create_scenario(node_class, n: int, movement: bool = False, transmit_range=3, name=None):
+    scenario = Scenario(
+        f"Routing_{name}",
+        0.25,
+        3,
+        [node_class(i, 0.25, transmit_range, np.random.uniform(0, 10), np.random.uniform(0, 10)) for i in range(1, n)] +
+        [node_class(0, 0.25, transmit_range, 0, 0),  # source
+         node_class(100, 0.25, transmit_range, 10, 10)],  # sink
+
+        [
+            PlannedTransmission(2, HighLevelMessage(100, "Hello message", 5), 0)
+        ],
+        movement
+    )
+
+    return scenario
 
 
-        # for node in self.nodes:
-        #     msg = node.receive()
-        #     if msg:
-        #         self.received_message_counter += 1
-        #
-        #         if self.received_message_counter == self.expected_received_messages:
-        #             self.report(simulation_time)
-        #             exit(0)
-
-np.random.seed(42)
-
-Routing_1_aloha = Scenario(
-    "Routing_1_aloha",
-    0.25,
-    3,
-    [RTSCTSNode(i, 0.25, 3, np.random.uniform(0, 10), np.random.uniform(0, 10)) for i in range(1, 20)] +
-    [RTSCTSNode(0, 0.25, 3, 0, 0),  # source
-     RTSCTSNode(100, 0.25, 3, 10, 10)],  # sink
-
-    [
-        PlannedTransmission(2, HighLevelMessage(100, "Hello message", 5), 0)
-    ]
-)
 
